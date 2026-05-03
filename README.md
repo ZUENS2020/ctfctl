@@ -4,6 +4,12 @@
 
 如果你想一眼看懂整个项目，先看 [项目总览](</Users/zuens2020/Documents/CTF-agent/docs/项目总览.md>)。
 
+## 安装
+
+```bash
+npm i -g ctfctl
+```
+
 ## 总体结构
 
 ```mermaid

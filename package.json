@@ -1,14 +1,15 @@
 {
   "name": "ctfctl",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Structured local control plane for Codex-driven CTF workflows.",
   "type": "module",
   "files": [
-    "dist",
-    "README.md"
+    "dist/**/*",
+    "README.md",
+    "CHANGELOG.md"
   ],
   "bin": {
-    "ctfctl": "./dist/index.js"
+    "ctfctl": "dist/index.js"
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
@@ -18,8 +19,19 @@
   "keywords": [
     "ctf",
     "cli",
-    "codex"
+    "codex",
+    "security",
+    "reverse-engineering",
+    "forensics"
   ],
+  "homepage": "https://www.npmjs.com/package/ctfctl",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zuens2020/ctfctl.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zuens2020/ctfctl/issues"
+  },
   "engines": {
     "node": ">=22"
   },
