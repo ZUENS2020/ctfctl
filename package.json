@@ -1,0 +1,32 @@
+{
+  "name": "ctfctl",
+  "version": "0.1.0",
+  "description": "Structured local control plane for Codex-driven CTF workflows.",
+  "type": "module",
+  "bin": {
+    "ctfctl": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "keywords": [
+    "ctf",
+    "cli",
+    "codex"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.2",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.8"
+  }
+}

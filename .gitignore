@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.ctfctl-runtime/
+coverage/
+docs/.DS_Store
+.DS_Store
