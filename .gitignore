@@ -4,3 +4,7 @@ dist/
 coverage/
 docs/.DS_Store
 .DS_Store
+e2e_docker_runtime/challenges/ch-moppm4v1-z7lvcf/challenge.json
+e2e_docker_runtime/images.json
+/e2e_docker_runtime
+/e2e_test_runtime

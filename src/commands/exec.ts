@@ -7,9 +7,20 @@ interface ProcessResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  timeout?: boolean;
 }
 
-async function runProcess(file: string, args: string[], cwd?: string): Promise<ProcessResult> {
+const MAX_OUTPUT_LENGTH = 20000;
+
+function truncateOutput(output: string): string {
+  if (output.length <= MAX_OUTPUT_LENGTH) {
+    return output;
+  }
+  const keep = 8000;
+  return `${output.substring(0, keep)}\n...[TRUNCATED ${output.length - 2 * keep} chars]...\n${output.substring(output.length - keep)}`;
+}
+
+async function runProcess(file: string, args: string[], cwd?: string, timeoutMs: number = 60000): Promise<ProcessResult> {
   return await new Promise((resolve, reject) => {
     const child = spawn(file, args, {
       cwd,
@@ -18,21 +29,40 @@ async function runProcess(file: string, args: string[], cwd?: string): Promise<P
 
     let stdout = "";
     let stderr = "";
+    let isTimeout = false;
+    let timer: NodeJS.Timeout | undefined;
+
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        isTimeout = true;
+        child.kill("SIGKILL");
+      }, timeoutMs);
+    }
 
     child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
+      if (stdout.length < 5000000) { // hard cap at ~5MB to avoid memory leaks
+        stdout += String(chunk);
+      }
     });
 
     child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
+      if (stderr.length < 5000000) {
+        stderr += String(chunk);
+      }
     });
 
-    child.on("error", reject);
+    child.on("error", (err) => {
+      if (timer) clearTimeout(timer);
+      reject(err);
+    });
+
     child.on("close", (code) => {
+      if (timer) clearTimeout(timer);
       resolve({
-        stdout,
-        stderr,
-        exitCode: code ?? 1
+        stdout: truncateOutput(stdout),
+        stderr: truncateOutput(stderr),
+        exitCode: isTimeout ? 124 : (code ?? 1),
+        timeout: isTimeout
       });
     });
   });
@@ -46,24 +76,32 @@ export function registerExecCommands(program: Command, context: CommandContext):
     .requiredOption("--workspace <workspaceId>")
     .requiredOption("--cmd <command>")
     .requiredOption("--reason <reason>")
+    .option("-t, --timeout <ms>", "timeout in ms (set to 0 to disable)", "60000")
     .action(async (options) => {
       context.setCommand("exec run");
       const workspace = await getWorkspace(context.paths, options.workspace);
+      const timeoutMs = parseInt(options.timeout, 10);
+
       const result =
         workspace.backend === "docker"
-          ? await runProcess("docker", [
-              "run",
-              "--rm",
-              "-v",
-              `${workspace.path}:${workspace.containerWorkdir ?? "/workspace"}`,
-              "-w",
-              workspace.containerWorkdir ?? "/workspace",
-              workspace.containerImage ?? context.paths.config.dockerImage,
-              "sh",
-              "-lc",
-              options.cmd
-            ])
-          : await runProcess("sh", ["-lc", options.cmd], workspace.path);
+          ? await runProcess(
+              "docker",
+              [
+                "run",
+                "--rm",
+                "-v",
+                `${workspace.path}:${workspace.containerWorkdir ?? "/workspace"}`,
+                "-w",
+                workspace.containerWorkdir ?? "/workspace",
+                workspace.containerImage ?? context.paths.config.dockerImage,
+                "sh",
+                "-lc",
+                options.cmd
+              ],
+              undefined,
+              timeoutMs
+            )
+          : await runProcess("sh", ["-lc", options.cmd], workspace.path, timeoutMs);
 
       context.writeSuccess({
         backend: workspace.backend,
@@ -73,7 +111,8 @@ export function registerExecCommands(program: Command, context: CommandContext):
         reason: options.reason,
         stdout: result.stdout,
         stderr: result.stderr,
-        exitCode: result.exitCode
+        exitCode: result.exitCode,
+        timeout: result.timeout
       });
     });
 }
