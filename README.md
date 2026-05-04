@@ -26,7 +26,6 @@ flowchart TD
     CLI --> Image["image"]
 
     Workspace --> Backend["backend"]
-    Backend --> Local["local-shell"]
     Backend --> Docker["docker / kali image"]
 ```
 
@@ -115,13 +114,15 @@ flowchart TD
 
 ## 后端
 
-当前支持两种本地执行后端：
+当前只支持 `docker` 后端：
 
-- `local-shell`：在宿主机工作目录里执行命令
 - `docker`：使用临时 Docker 容器执行命令，并将工作区挂载到容器中
+- `workspace.backend` 在输出协议里固定为 `"docker"`
+- `workspace destroy` 仅改变状态，不主动删除工作区文件
 
 默认配置：
 
+- `runtimeRoot = <当前工作目录>/.ctfctl-runtime`
 - `backend = docker`
 - `docker.image = kali/rolling`
 - `docker.workdir = /workspace`
@@ -130,7 +131,6 @@ flowchart TD
 
 ```bash
 ctfctl config show
-ctfctl config set backend docker
 ctfctl config set docker.image kali/rolling
 ctfctl config set docker.workdir /workspace
 ```
@@ -144,6 +144,20 @@ ctfctl setup
 环境变量仍然保留为兼容覆盖层，但不再是推荐主配置方式。
 
 Docker 模式要求本机 Docker daemon 可用。`image ensure` 会拉取镜像并登记到本地 runtime，`exec run` 则使用 `docker run --rm` 执行临时容器。
+
+## Codex 启动 Skill
+
+仓库内置了一个给 Codex 使用的 bootstrap skill：
+
+- `.agents/skills/ctf-solving-with-ctfctl/SKILL.md`
+
+它的目标是让用户只提供题目描述、附件和 URL，Codex 就能直接：
+
+- 初始化 `challenge / workspace / gccmem`
+- 导入附件为 `artifact`
+- 记录初始 `evidence`
+- 确保 Docker 镜像可用
+- 自动开始首轮侦察与持续解题
 
 ## gccmem 流程
 
@@ -258,8 +272,9 @@ ctfctl skill proposal list --skill skill-xxxx
 
 ```bash
 ctfctl config show
-ctfctl config get backend
-ctfctl config set backend local-shell
+ctfctl config get runtimeRoot
+ctfctl config set runtimeRoot /tmp/ctfctl-runtime
+ctfctl config set docker.image kali/rolling
 ctfctl config unset docker.image
 ctfctl setup
 ```

@@ -1,24 +1,28 @@
 import { z } from "zod";
 
+const isoTimestampSchema = z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
+  message: "Expected an ISO-compatible timestamp"
+});
+
 export const challengeSchema = z.object({
   id: z.string(),
   name: z.string(),
   category: z.string(),
   description: z.string(),
   flagFormat: z.string(),
-  createdAt: z.string()
+  createdAt: isoTimestampSchema
 });
 
 export const workspaceSchema = z.object({
   id: z.string(),
   challengeId: z.string(),
-  backend: z.enum(["local-shell", "docker"]),
+  backend: z.literal("docker"),
   status: z.enum(["ready", "destroyed"]),
   path: z.string(),
-  containerImage: z.string().nullable(),
-  containerWorkdir: z.string().nullable(),
-  containerName: z.string().nullable(),
-  createdAt: z.string()
+  containerImage: z.string(),
+  containerWorkdir: z.string(),
+  containerName: z.string(),
+  createdAt: isoTimestampSchema
 });
 
 export const artifactSchema = z.object({
@@ -31,7 +35,7 @@ export const artifactSchema = z.object({
   source: z.string(),
   derivedFrom: z.string().nullable(),
   blobPath: z.string(),
-  createdAt: z.string()
+  createdAt: isoTimestampSchema
 });
 
 export const evidenceEntrySchema = z.object({
@@ -39,16 +43,7 @@ export const evidenceEntrySchema = z.object({
   challengeId: z.string(),
   kind: z.string(),
   text: z.string(),
-  createdAt: z.string()
-});
-
-export const memoryRecordSchema = z.object({
-  id: z.string(),
-  type: z.string(),
-  title: z.string(),
-  summary: z.string(),
-  tags: z.array(z.string()),
-  createdAt: z.string()
+  createdAt: isoTimestampSchema
 });
 
 export const memoryBranchSchema = z.object({
@@ -58,7 +53,7 @@ export const memoryBranchSchema = z.object({
   status: z.enum(["active", "merged", "dead"]),
   parentBranchId: z.string().nullable(),
   headCommitId: z.string().nullable(),
-  createdAt: z.string()
+  createdAt: isoTimestampSchema
 });
 
 export const memoryCommitSchema = z.object({
@@ -71,7 +66,7 @@ export const memoryCommitSchema = z.object({
   hypotheses: z.array(z.string()),
   artifactIds: z.array(z.string()),
   evidenceIds: z.array(z.string()),
-  createdAt: z.string()
+  createdAt: isoTimestampSchema
 });
 
 export const memoryMergeSchema = z.object({
@@ -81,7 +76,7 @@ export const memoryMergeSchema = z.object({
   targetBranchId: z.string(),
   resultCommitId: z.string(),
   summary: z.string(),
-  createdAt: z.string()
+  createdAt: isoTimestampSchema
 });
 
 export const skillSchema = z.object({
@@ -94,7 +89,7 @@ export const skillSchema = z.object({
   successSignals: z.array(z.string()),
   failureSignals: z.array(z.string()),
   parentSkillId: z.string().nullable(),
-  createdAt: z.string()
+  createdAt: isoTimestampSchema
 });
 
 export const skillTraceSchema = z.object({
@@ -106,7 +101,7 @@ export const skillTraceSchema = z.object({
   commandCount: z.number(),
   flagFound: z.boolean(),
   notes: z.array(z.string()),
-  createdAt: z.string()
+  createdAt: isoTimestampSchema
 });
 
 export const skillEvaluationSchema = z.object({
@@ -116,7 +111,7 @@ export const skillEvaluationSchema = z.object({
   score: z.number(),
   strengths: z.array(z.string()),
   weaknesses: z.array(z.string()),
-  createdAt: z.string()
+  createdAt: isoTimestampSchema
 });
 
 export const skillProposalSchema = z.object({
@@ -128,14 +123,20 @@ export const skillProposalSchema = z.object({
   proposedVersion: z.string(),
   summary: z.string(),
   changes: z.array(z.string()),
-  createdAt: z.string()
+  createdAt: isoTimestampSchema
 });
+
+export const dockerImageRecordSchema = z.object({
+  name: z.string(),
+  ensuredAt: isoTimestampSchema
+});
+
+export const dockerImageLedgerSchema = z.array(dockerImageRecordSchema);
 
 export type ChallengeRecord = z.infer<typeof challengeSchema>;
 export type WorkspaceRecord = z.infer<typeof workspaceSchema>;
 export type ArtifactRecord = z.infer<typeof artifactSchema>;
 export type EvidenceEntry = z.infer<typeof evidenceEntrySchema>;
-export type MemoryRecord = z.infer<typeof memoryRecordSchema>;
 export type MemoryBranchRecord = z.infer<typeof memoryBranchSchema>;
 export type MemoryCommitRecord = z.infer<typeof memoryCommitSchema>;
 export type MemoryMergeRecord = z.infer<typeof memoryMergeSchema>;
@@ -143,3 +144,4 @@ export type SkillRecord = z.infer<typeof skillSchema>;
 export type SkillTraceRecord = z.infer<typeof skillTraceSchema>;
 export type SkillEvaluationRecord = z.infer<typeof skillEvaluationSchema>;
 export type SkillProposalRecord = z.infer<typeof skillProposalSchema>;
+export type DockerImageRecord = z.infer<typeof dockerImageRecordSchema>;

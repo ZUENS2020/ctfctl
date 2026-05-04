@@ -11,7 +11,7 @@ afterEach(async () => {
 });
 
 describe("exec run", () => {
-  it("runs a command in the workspace and returns stdout, stderr, exitCode", async () => {
+  it.skipIf(!dockerDaemonAvailable)("runs a command in the docker workspace and returns stdout, stderr, exitCode", async () => {
     const runtimeRoot = await makeRuntimeRoot();
     runtimeRoots.push(runtimeRoot);
 
@@ -32,7 +32,7 @@ describe("exec run", () => {
           ],
           {
             CTFCTL_RUNTIME_ROOT: runtimeRoot,
-            CTFCTL_BACKEND: "local-shell"
+            CTFCTL_DOCKER_IMAGE: "alpine:3.20"
           }
         )
       ).stdout
@@ -42,7 +42,7 @@ describe("exec run", () => {
       (
         await runCli(["workspace", "create", "--challenge", challenge.id], {
           CTFCTL_RUNTIME_ROOT: runtimeRoot,
-          CTFCTL_BACKEND: "local-shell"
+          CTFCTL_DOCKER_IMAGE: "alpine:3.20"
         })
       ).stdout
     ).data.workspace;
@@ -51,7 +51,7 @@ describe("exec run", () => {
       ["exec", "run", "--workspace", workspace.id, "--cmd", "printf hello", "--reason", "smoke test"],
       {
         CTFCTL_RUNTIME_ROOT: runtimeRoot,
-        CTFCTL_BACKEND: "local-shell"
+        CTFCTL_DOCKER_IMAGE: "alpine:3.20"
       }
     );
 
@@ -60,7 +60,7 @@ describe("exec run", () => {
     const parsed = JSON.parse(result.stdout);
     expect(parsed.ok).toBe(true);
     expect(parsed.meta.command).toBe("exec run");
-    expect(parsed.data.backend).toBe("local-shell");
+    expect(parsed.data.backend).toBe("docker");
     expect(parsed.data.command).toBe("printf hello");
     expect(parsed.data.reason).toBe("smoke test");
     expect(parsed.data.stdout).toBe("hello");
@@ -76,7 +76,7 @@ describe("exec run", () => {
       ["exec", "run", "--workspace", "ws-missing", "--cmd", "printf hello", "--reason", "smoke test"],
       {
         CTFCTL_RUNTIME_ROOT: runtimeRoot,
-        CTFCTL_BACKEND: "local-shell"
+        CTFCTL_DOCKER_IMAGE: "alpine:3.20"
       }
     );
 
@@ -87,61 +87,5 @@ describe("exec run", () => {
     expect(parsed.meta.command).toBe("exec run");
     expect(parsed.error.code).toBe("WORKSPACE_NOT_FOUND");
     expect(parsed.error.message).toContain("ws-missing");
-  });
-
-  it.skipIf(!dockerDaemonAvailable)("runs a command through docker for docker-backed workspaces", async () => {
-    const runtimeRoot = await makeRuntimeRoot();
-    runtimeRoots.push(runtimeRoot);
-
-    const challenge = JSON.parse(
-      (
-        await runCli(
-          [
-            "challenge",
-            "init",
-            "--name",
-            "docker challenge",
-            "--category",
-            "reverse",
-            "--description",
-            "run in docker",
-            "--flag-format",
-            "flag{...}"
-          ],
-          {
-            CTFCTL_RUNTIME_ROOT: runtimeRoot,
-            CTFCTL_BACKEND: "docker",
-            CTFCTL_DOCKER_IMAGE: "alpine:3.20"
-          }
-        )
-      ).stdout
-    ).data.challenge;
-
-    const workspace = JSON.parse(
-      (
-        await runCli(["workspace", "create", "--challenge", challenge.id], {
-          CTFCTL_RUNTIME_ROOT: runtimeRoot,
-          CTFCTL_BACKEND: "docker",
-          CTFCTL_DOCKER_IMAGE: "alpine:3.20"
-        })
-      ).stdout
-    ).data.workspace;
-
-    const result = await runCli(
-      ["exec", "run", "--workspace", workspace.id, "--cmd", "printf hello-from-docker", "--reason", "docker smoke test"],
-      {
-        CTFCTL_RUNTIME_ROOT: runtimeRoot,
-        CTFCTL_BACKEND: "docker",
-        CTFCTL_DOCKER_IMAGE: "alpine:3.20"
-      }
-    );
-
-    expect(result.exitCode).toBe(0);
-
-    const parsed = JSON.parse(result.stdout);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.data.backend).toBe("docker");
-    expect(parsed.data.image).toBe("alpine:3.20");
-    expect(parsed.data.stdout).toBe("hello-from-docker");
   });
 });

@@ -1,13 +1,20 @@
 import { join } from "node:path";
 import { CliError } from "./errors.js";
-import { makeId, readJsonFile, type RuntimePaths, writeJsonFile } from "./runtime.js";
+import { isMissingFileError, makeId, readJsonFile, type RuntimePaths, writeJsonFile } from "./runtime.js";
 import type {
   SkillEvaluationRecord,
   SkillProposalRecord,
   SkillRecord,
   SkillTraceRecord
 } from "./schemas.js";
+import {
+  skillEvaluationSchema,
+  skillProposalSchema,
+  skillSchema,
+  skillTraceSchema
+} from "./schemas.js";
 import { readdir } from "node:fs/promises";
+import type { ZodType } from "zod";
 
 function parseCsv(value: string | undefined): string[] {
   if (!value) {
@@ -33,14 +40,35 @@ function nextPatchVersion(version: string): string {
   return `${major}.${minor}.${nextPatch + 1}`;
 }
 
-async function readDirRecords<T>(dir: string): Promise<T[]> {
-  const files = await readdir(dir);
+async function readDirRecords<T>(dir: string, schema: ZodType<T>): Promise<T[]> {
+  const files = (await readdir(dir)).sort();
   const records = await Promise.all(
     files
       .filter((file) => file.endsWith(".json"))
-      .map(async (file) => await readJsonFile<T>(join(dir, file)))
+      .map(async (file) => await readJsonFile<T>(join(dir, file), schema))
   );
   return records;
+}
+
+async function readRequiredSkillRecord<T>(
+  path: string,
+  schema: ZodType<T>,
+  notFoundMessage: string,
+  notFoundCode: string
+): Promise<T> {
+  try {
+    return await readJsonFile<T>(path, schema);
+  } catch (error) {
+    if (error instanceof CliError) {
+      throw error;
+    }
+
+    if (isMissingFileError(error)) {
+      throw new CliError(notFoundMessage, notFoundCode, 1);
+    }
+
+    throw error;
+  }
 }
 
 export async function createSkill(
@@ -68,20 +96,21 @@ export async function createSkill(
     parentSkillId: input.parentSkillId ?? null,
     createdAt: new Date().toISOString()
   };
-  await writeJsonFile(join(paths.skillsDir, `${skill.id}.json`), skill);
+  await writeJsonFile(join(paths.skillsDir, `${skill.id}.json`), skill, skillSchema);
   return skill;
 }
 
 export async function listSkills(paths: RuntimePaths): Promise<SkillRecord[]> {
-  return await readDirRecords<SkillRecord>(paths.skillsDir);
+  return await readDirRecords<SkillRecord>(paths.skillsDir, skillSchema);
 }
 
 export async function getSkill(paths: RuntimePaths, skillId: string): Promise<SkillRecord> {
-  try {
-    return await readJsonFile<SkillRecord>(join(paths.skillsDir, `${skillId}.json`));
-  } catch {
-    throw new CliError(`Skill not found: ${skillId}`, "SKILL_NOT_FOUND", 1);
-  }
+  return await readRequiredSkillRecord(
+    join(paths.skillsDir, `${skillId}.json`),
+    skillSchema,
+    `Skill not found: ${skillId}`,
+    "SKILL_NOT_FOUND"
+  );
 }
 
 export async function createSkillTrace(
@@ -102,21 +131,22 @@ export async function createSkillTrace(
     createdAt: new Date().toISOString(),
     ...input
   };
-  await writeJsonFile(join(paths.skillTracesDir, `${trace.id}.json`), trace);
+  await writeJsonFile(join(paths.skillTracesDir, `${trace.id}.json`), trace, skillTraceSchema);
   return trace;
 }
 
 export async function listSkillTraces(paths: RuntimePaths, skillId?: string): Promise<SkillTraceRecord[]> {
-  const traces = await readDirRecords<SkillTraceRecord>(paths.skillTracesDir);
+  const traces = await readDirRecords<SkillTraceRecord>(paths.skillTracesDir, skillTraceSchema);
   return skillId ? traces.filter((trace) => trace.skillId === skillId) : traces;
 }
 
 export async function getSkillTrace(paths: RuntimePaths, traceId: string): Promise<SkillTraceRecord> {
-  try {
-    return await readJsonFile<SkillTraceRecord>(join(paths.skillTracesDir, `${traceId}.json`));
-  } catch {
-    throw new CliError(`Skill trace not found: ${traceId}`, "SKILL_TRACE_NOT_FOUND", 1);
-  }
+  return await readRequiredSkillRecord(
+    join(paths.skillTracesDir, `${traceId}.json`),
+    skillTraceSchema,
+    `Skill trace not found: ${traceId}`,
+    "SKILL_TRACE_NOT_FOUND"
+  );
 }
 
 export async function createSkillEvaluation(
@@ -136,16 +166,17 @@ export async function createSkillEvaluation(
     createdAt: new Date().toISOString(),
     ...input
   };
-  await writeJsonFile(join(paths.skillEvaluationsDir, `${evaluation.id}.json`), evaluation);
+  await writeJsonFile(join(paths.skillEvaluationsDir, `${evaluation.id}.json`), evaluation, skillEvaluationSchema);
   return evaluation;
 }
 
 export async function getSkillEvaluation(paths: RuntimePaths, evaluationId: string): Promise<SkillEvaluationRecord> {
-  try {
-    return await readJsonFile<SkillEvaluationRecord>(join(paths.skillEvaluationsDir, `${evaluationId}.json`));
-  } catch {
-    throw new CliError(`Skill evaluation not found: ${evaluationId}`, "SKILL_EVALUATION_NOT_FOUND", 1);
-  }
+  return await readRequiredSkillRecord(
+    join(paths.skillEvaluationsDir, `${evaluationId}.json`),
+    skillEvaluationSchema,
+    `Skill evaluation not found: ${evaluationId}`,
+    "SKILL_EVALUATION_NOT_FOUND"
+  );
 }
 
 export async function createSkillProposal(
@@ -168,12 +199,12 @@ export async function createSkillProposal(
     createdAt: new Date().toISOString(),
     ...input
   };
-  await writeJsonFile(join(paths.skillProposalsDir, `${proposal.id}.json`), proposal);
+  await writeJsonFile(join(paths.skillProposalsDir, `${proposal.id}.json`), proposal, skillProposalSchema);
   return proposal;
 }
 
 export async function listSkillProposals(paths: RuntimePaths, skillId?: string): Promise<SkillProposalRecord[]> {
-  const proposals = await readDirRecords<SkillProposalRecord>(paths.skillProposalsDir);
+  const proposals = await readDirRecords<SkillProposalRecord>(paths.skillProposalsDir, skillProposalSchema);
   return skillId ? proposals.filter((proposal) => proposal.skillId === skillId) : proposals;
 }
 

@@ -2,11 +2,12 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
-export type BackendKind = "local-shell" | "docker";
+import { CliError } from "./errors.js";
+
+export type BackendKind = "docker";
 
 export interface StoredConfig {
   runtimeRoot?: string;
-  backend?: BackendKind;
   docker?: {
     image?: string;
     workdir?: string;
@@ -27,6 +28,10 @@ const DEFAULTS = {
   dockerImage: "kali/rolling",
   dockerWorkdir: "/workspace"
 };
+
+export function resolveDefaultRuntimeRoot(): string {
+  return resolve(process.cwd(), ".ctfctl-runtime");
+}
 
 export function resolveConfigHome(env: NodeJS.ProcessEnv): string {
   return resolve(env.CTFCTL_CONFIG_HOME ?? join(homedir(), ".ctfctl"));
@@ -53,13 +58,13 @@ export async function saveStoredConfig(env: NodeJS.ProcessEnv, config: StoredCon
 
 export function materializeConfig(stored: StoredConfig, env: NodeJS.ProcessEnv): RuntimeConfig {
   const runtimeRoot = resolve(
-    stored.runtimeRoot ??
-      env.CTFCTL_RUNTIME_ROOT ??
-      join(resolveConfigHome(env), "runtime")
+    env.CTFCTL_RUNTIME_ROOT ??
+      stored.runtimeRoot ??
+      resolveDefaultRuntimeRoot()
   );
-  const backend = stored.backend ?? (env.CTFCTL_BACKEND === "local-shell" ? "local-shell" : DEFAULTS.backend);
-  const dockerImage = stored.docker?.image ?? env.CTFCTL_DOCKER_IMAGE ?? DEFAULTS.dockerImage;
-  const dockerWorkdir = stored.docker?.workdir ?? env.CTFCTL_DOCKER_WORKDIR ?? DEFAULTS.dockerWorkdir;
+  const backend = DEFAULTS.backend;
+  const dockerImage = env.CTFCTL_DOCKER_IMAGE ?? stored.docker?.image ?? DEFAULTS.dockerImage;
+  const dockerWorkdir = env.CTFCTL_DOCKER_WORKDIR ?? stored.docker?.workdir ?? DEFAULTS.dockerWorkdir;
   const configHome = resolveConfigHome(env);
   const configPath = resolveConfigPath(env);
 
@@ -81,7 +86,6 @@ export async function resolveConfig(env: NodeJS.ProcessEnv): Promise<RuntimeConf
 export function toStoredConfig(config: RuntimeConfig): StoredConfig {
   return {
     runtimeRoot: config.runtimeRoot,
-    backend: config.backend,
     docker: {
       image: config.dockerImage,
       workdir: config.dockerWorkdir
@@ -108,14 +112,12 @@ export function updateStoredConfig(stored: StoredConfig, key: string, value: str
   switch (key) {
     case "runtimeRoot":
       return { ...stored, runtimeRoot: value };
-    case "backend":
-      return { ...stored, backend: value as BackendKind };
     case "docker.image":
       return { ...stored, docker: { ...(stored.docker ?? {}), image: value } };
     case "docker.workdir":
       return { ...stored, docker: { ...(stored.docker ?? {}), workdir: value } };
     default:
-      return stored;
+      throw new CliError(`Unsupported config key: ${key}`, "INVALID_CONFIG_KEY", 1);
   }
 }
 
@@ -123,13 +125,11 @@ export function unsetStoredConfig(stored: StoredConfig, key: string): StoredConf
   switch (key) {
     case "runtimeRoot":
       return { ...stored, runtimeRoot: undefined };
-    case "backend":
-      return { ...stored, backend: undefined };
     case "docker.image":
       return { ...stored, docker: { ...(stored.docker ?? {}), image: undefined } };
     case "docker.workdir":
       return { ...stored, docker: { ...(stored.docker ?? {}), workdir: undefined } };
     default:
-      return stored;
+      throw new CliError(`Unsupported config key: ${key}`, "INVALID_CONFIG_KEY", 1);
   }
 }

@@ -64,7 +64,6 @@ export function registerConfigCommands(program: Command, context: CommandContext
     context.setCommand("setup");
     const answers = await context.prompt([
       `runtimeRoot [${context.config.runtimeRoot}]`,
-      `backend [${context.config.backend}]`,
       `docker.image [${context.config.dockerImage}]`,
       `docker.workdir [${context.config.dockerWorkdir}]`
     ]);
@@ -72,9 +71,8 @@ export function registerConfigCommands(program: Command, context: CommandContext
     const nextConfig = {
       ...context.config,
       runtimeRoot: answers[0] || context.config.runtimeRoot,
-      backend: (answers[1] || context.config.backend) as typeof context.config.backend,
-      dockerImage: answers[2] || context.config.dockerImage,
-      dockerWorkdir: answers[3] || context.config.dockerWorkdir
+      dockerImage: answers[1] || context.config.dockerImage,
+      dockerWorkdir: answers[2] || context.config.dockerWorkdir
     };
 
     await saveStoredConfig(context.env, toStoredConfig(nextConfig));

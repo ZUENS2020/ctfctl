@@ -1,17 +1,28 @@
 import { appendFile, copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
+import { z, type ZodType } from "zod";
 import type { RuntimeConfig } from "./config.js";
 import { CliError } from "./errors.js";
 import type {
   ArtifactRecord,
   ChallengeRecord,
+  DockerImageRecord,
   EvidenceEntry,
   MemoryBranchRecord,
   MemoryCommitRecord,
   MemoryMergeRecord,
-  MemoryRecord,
   WorkspaceRecord
+} from "./schemas.js";
+import {
+  artifactSchema,
+  challengeSchema,
+  dockerImageLedgerSchema,
+  evidenceEntrySchema,
+  memoryBranchSchema,
+  memoryCommitSchema,
+  memoryMergeSchema,
+  workspaceSchema
 } from "./schemas.js";
 
 export interface RuntimePaths {
@@ -69,13 +80,77 @@ export function makeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export async function writeJsonFile(path: string, value: unknown): Promise<void> {
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }
 
-export async function readJsonFile<T>(path: string): Promise<T> {
+export function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
+  return isErrnoException(error) && error.code === "ENOENT";
+}
+
+function formatSchemaIssues(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => {
+      const location = issue.path.length > 0 ? issue.path.join(".") : "<root>";
+      return `${location}: ${issue.message}`;
+    })
+    .join("; ");
+}
+
+function validateRecord<T>(schema: ZodType<T>, value: unknown, path: string): T {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    throw new CliError(
+      `Invalid runtime record at ${path}: ${formatSchemaIssues(parsed.error)}`,
+      "INVALID_RUNTIME_RECORD",
+      1
+    );
+  }
+
+  return parsed.data;
+}
+
+async function readRequiredRecord<T>(
+  path: string,
+  schema: ZodType<T>,
+  notFoundMessage: string,
+  notFoundCode: string
+): Promise<T> {
+  try {
+    return await readJsonFile(path, schema);
+  } catch (error) {
+    if (error instanceof CliError) {
+      throw error;
+    }
+
+    if (isMissingFileError(error)) {
+      throw new CliError(notFoundMessage, notFoundCode, 1);
+    }
+
+    throw error;
+  }
+}
+
+export async function writeJsonFile<T>(path: string, value: unknown, schema?: ZodType<T>): Promise<void> {
+  const validated = schema ? validateRecord(schema, value, path) : value;
+  await writeFile(path, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
+}
+
+export async function readJsonFile<T>(path: string, schema?: ZodType<T>): Promise<T> {
   const raw = await readFile(path, "utf8");
-  return JSON.parse(raw) as T;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new CliError(`Invalid runtime record at ${path}: file is not valid JSON`, "INVALID_RUNTIME_RECORD", 1);
+  }
+
+  if (!schema) {
+    return parsed as T;
+  }
+
+  return validateRecord(schema, parsed, path);
 }
 
 export async function createChallenge(paths: RuntimePaths, input: Omit<ChallengeRecord, "id" | "createdAt">): Promise<ChallengeRecord> {
@@ -86,47 +161,48 @@ export async function createChallenge(paths: RuntimePaths, input: Omit<Challenge
   };
   const challengeDir = join(paths.challengesDir, challenge.id);
   await mkdir(challengeDir, { recursive: true });
-  await writeJsonFile(join(challengeDir, "challenge.json"), challenge);
+  await writeJsonFile(join(challengeDir, "challenge.json"), challenge, challengeSchema);
   return challenge;
 }
 
 export async function getChallenge(paths: RuntimePaths, challengeId: string): Promise<ChallengeRecord> {
-  try {
-    return await readJsonFile<ChallengeRecord>(join(paths.challengesDir, challengeId, "challenge.json"));
-  } catch {
-    throw new CliError(`Challenge not found: ${challengeId}`, "CHALLENGE_NOT_FOUND", 1);
-  }
+  return await readRequiredRecord(
+    join(paths.challengesDir, challengeId, "challenge.json"),
+    challengeSchema,
+    `Challenge not found: ${challengeId}`,
+    "CHALLENGE_NOT_FOUND"
+  );
 }
 
 export async function createWorkspace(paths: RuntimePaths, challengeId: string): Promise<WorkspaceRecord> {
   await getChallenge(paths, challengeId);
   const workspaceId = makeId("ws");
   const workspaceDir = join(paths.workspacesDir, workspaceId);
-  const backend = paths.config.backend;
   const workspace: WorkspaceRecord = {
     id: workspaceId,
     challengeId,
-    backend,
+    backend: "docker",
     status: "ready",
     path: join(workspaceDir, "fs"),
-    containerImage: backend === "docker" ? paths.config.dockerImage : null,
-    containerWorkdir: backend === "docker" ? paths.config.dockerWorkdir : null,
-    containerName: backend === "docker" ? `ctfctl-${workspaceId}` : null,
+    containerImage: paths.config.dockerImage,
+    containerWorkdir: paths.config.dockerWorkdir,
+    containerName: `ctfctl-${workspaceId}`,
     createdAt: new Date().toISOString()
   };
 
   await mkdir(workspaceDir, { recursive: true });
   await mkdir(workspace.path, { recursive: true });
-  await writeJsonFile(join(workspaceDir, "workspace.json"), workspace);
+  await writeJsonFile(join(workspaceDir, "workspace.json"), workspace, workspaceSchema);
   return workspace;
 }
 
 export async function getWorkspace(paths: RuntimePaths, workspaceId: string): Promise<WorkspaceRecord> {
-  try {
-    return await readJsonFile<WorkspaceRecord>(join(paths.workspacesDir, workspaceId, "workspace.json"));
-  } catch {
-    throw new CliError(`Workspace not found: ${workspaceId}`, "WORKSPACE_NOT_FOUND", 1);
-  }
+  return await readRequiredRecord(
+    join(paths.workspacesDir, workspaceId, "workspace.json"),
+    workspaceSchema,
+    `Workspace not found: ${workspaceId}`,
+    "WORKSPACE_NOT_FOUND"
+  );
 }
 
 export async function destroyWorkspace(paths: RuntimePaths, workspaceId: string): Promise<WorkspaceRecord> {
@@ -135,7 +211,7 @@ export async function destroyWorkspace(paths: RuntimePaths, workspaceId: string)
     ...workspace,
     status: "destroyed"
   };
-  await writeJsonFile(join(paths.workspacesDir, workspaceId, "workspace.json"), destroyed);
+  await writeJsonFile(join(paths.workspacesDir, workspaceId, "workspace.json"), destroyed, workspaceSchema);
   return destroyed;
 }
 
@@ -146,6 +222,7 @@ export async function appendEvidence(paths: RuntimePaths, entry: Omit<EvidenceEn
     createdAt: new Date().toISOString(),
     ...entry
   };
+  validateRecord(evidenceEntrySchema, stored, join(paths.challengesDir, entry.challengeId, "evidence.jsonl"));
   await appendFile(
     join(paths.challengesDir, entry.challengeId, "evidence.jsonl"),
     `${JSON.stringify(stored)}\n`,
@@ -200,17 +277,26 @@ export async function createArtifact(
     createdAt: new Date().toISOString()
   };
 
-  await writeJsonFile(join(artifactDir, "artifact.json"), artifact);
+  await writeJsonFile(join(artifactDir, "artifact.json"), artifact, artifactSchema);
   return artifact;
 }
 
 export async function listArtifactsByChallenge(paths: RuntimePaths, challengeId: string): Promise<ArtifactRecord[]> {
-  const ids = await readdir(paths.artifactsDir);
+  const ids = (await readdir(paths.artifactsDir)).sort();
   const artifacts = await Promise.all(
     ids.map(async (artifactId) => {
+      const artifactPath = join(paths.artifactsDir, artifactId, "artifact.json");
       try {
-        return await readJsonFile<ArtifactRecord>(join(paths.artifactsDir, artifactId, "artifact.json"));
-      } catch {
+        return await readJsonFile<ArtifactRecord>(artifactPath, artifactSchema);
+      } catch (error) {
+        if (isMissingFileError(error)) {
+          return null;
+        }
+
+        if (error instanceof CliError) {
+          throw error;
+        }
+
         return null;
       }
     })
@@ -219,41 +305,16 @@ export async function listArtifactsByChallenge(paths: RuntimePaths, challengeId:
   return artifacts.filter((artifact): artifact is ArtifactRecord => artifact !== null && artifact.challengeId === challengeId);
 }
 
-export async function commitMemory(paths: RuntimePaths, entry: Omit<MemoryRecord, "id" | "createdAt">): Promise<MemoryRecord> {
-  const stored: MemoryRecord = {
-    id: makeId("mem"),
-    createdAt: new Date().toISOString(),
-    ...entry
-  };
-  await writeJsonFile(join(paths.memoryDir, `${stored.id}.json`), stored);
-  return stored;
-}
-
-export async function recallMemory(paths: RuntimePaths, query: string): Promise<MemoryRecord[]> {
-  const lowered = query.toLowerCase();
-  const files = await readdir(paths.memoryDir);
-  const matches = await Promise.all(
-    files
-      .filter((file) => file.endsWith(".json"))
-      .map(async (file) => readJsonFile<MemoryRecord>(join(paths.memoryDir, file)))
-  );
-
-  return matches.filter((entry) => {
-    const haystack = [entry.title, entry.summary, ...entry.tags].join(" ").toLowerCase();
-    return haystack.includes(lowered);
-  });
-}
-
 export async function recallMemoryCommits(
   paths: RuntimePaths,
   query: string
 ): Promise<MemoryCommitRecord[]> {
   const lowered = query.toLowerCase();
-  const files = await readdir(paths.memoryCommitsDir);
+  const files = (await readdir(paths.memoryCommitsDir)).sort();
   const commits = await Promise.all(
     files
       .filter((file) => file.endsWith(".json"))
-      .map(async (file) => readJsonFile<MemoryCommitRecord>(join(paths.memoryCommitsDir, file)))
+      .map(async (file) => readJsonFile<MemoryCommitRecord>(join(paths.memoryCommitsDir, file), memoryCommitSchema))
   );
 
   return commits.filter((commit) => {
@@ -265,21 +326,32 @@ export async function recallMemoryCommits(
 export async function ensureDockerImageRecord(
   paths: RuntimePaths,
   image: string
-): Promise<{ name: string; ensuredAt: string }> {
-  const record = {
+): Promise<DockerImageRecord> {
+  const images = await listDockerImageRecords(paths);
+  const record: DockerImageRecord = {
     name: image,
     ensuredAt: new Date().toISOString()
   };
-  await writeJsonFile(join(paths.root, "images.json"), [record]);
+  const existing = images.filter((entry) => entry.name !== image);
+  const next = [...existing, record].sort((left, right) => left.name.localeCompare(right.name));
+  await writeJsonFile(join(paths.root, "images.json"), next, dockerImageLedgerSchema);
   return record;
 }
 
 export async function listDockerImageRecords(
   paths: RuntimePaths
-): Promise<Array<{ name: string; ensuredAt: string }>> {
+): Promise<DockerImageRecord[]> {
   try {
-    return await readJsonFile<Array<{ name: string; ensuredAt: string }>>(join(paths.root, "images.json"));
-  } catch {
+    return await readJsonFile<DockerImageRecord[]>(join(paths.root, "images.json"), dockerImageLedgerSchema);
+  } catch (error) {
+    if (error instanceof CliError) {
+      throw error;
+    }
+
+    if (isMissingFileError(error)) {
+      return [];
+    }
+
     return [];
   }
 }
@@ -302,16 +374,17 @@ export async function createMemoryBranch(
     headCommitId: null,
     createdAt: new Date().toISOString()
   };
-  await writeJsonFile(join(paths.memoryBranchesDir, `${branch.id}.json`), branch);
+  await writeJsonFile(join(paths.memoryBranchesDir, `${branch.id}.json`), branch, memoryBranchSchema);
   return branch;
 }
 
 async function getMemoryBranch(paths: RuntimePaths, branchId: string): Promise<MemoryBranchRecord> {
-  try {
-    return await readJsonFile<MemoryBranchRecord>(join(paths.memoryBranchesDir, `${branchId}.json`));
-  } catch {
-    throw new CliError(`Memory branch not found: ${branchId}`, "MEMORY_BRANCH_NOT_FOUND", 1);
-  }
+  return await readRequiredRecord(
+    join(paths.memoryBranchesDir, `${branchId}.json`),
+    memoryBranchSchema,
+    `Memory branch not found: ${branchId}`,
+    "MEMORY_BRANCH_NOT_FOUND"
+  );
 }
 
 export async function createMemoryCommit(
@@ -340,11 +413,11 @@ export async function createMemoryCommit(
     createdAt: new Date().toISOString()
   };
 
-  await writeJsonFile(join(paths.memoryCommitsDir, `${commit.id}.json`), commit);
+  await writeJsonFile(join(paths.memoryCommitsDir, `${commit.id}.json`), commit, memoryCommitSchema);
   await writeJsonFile(join(paths.memoryBranchesDir, `${branch.id}.json`), {
     ...branch,
     headCommitId: commit.id
-  } satisfies MemoryBranchRecord);
+  } satisfies MemoryBranchRecord, memoryBranchSchema);
   return commit;
 }
 
@@ -371,11 +444,11 @@ export async function createMemoryMerge(
     createdAt: new Date().toISOString()
   };
 
-  await writeJsonFile(join(paths.memoryMergesDir, `${merge.id}.json`), merge);
+  await writeJsonFile(join(paths.memoryMergesDir, `${merge.id}.json`), merge, memoryMergeSchema);
   await writeJsonFile(join(paths.memoryBranchesDir, `${sourceBranch.id}.json`), {
     ...sourceBranch,
     status: "merged"
-  } satisfies MemoryBranchRecord);
-  await writeJsonFile(join(paths.memoryBranchesDir, `${targetBranch.id}.json`), targetBranch);
+  } satisfies MemoryBranchRecord, memoryBranchSchema);
+  await writeJsonFile(join(paths.memoryBranchesDir, `${targetBranch.id}.json`), targetBranch, memoryBranchSchema);
   return merge;
 }

@@ -82,26 +82,23 @@ export function registerExecCommands(program: Command, context: CommandContext):
       const workspace = await getWorkspace(context.paths, options.workspace);
       const timeoutMs = parseInt(options.timeout, 10);
 
-      const result =
-        workspace.backend === "docker"
-          ? await runProcess(
-              "docker",
-              [
-                "run",
-                "--rm",
-                "-v",
-                `${workspace.path}:${workspace.containerWorkdir ?? "/workspace"}`,
-                "-w",
-                workspace.containerWorkdir ?? "/workspace",
-                workspace.containerImage ?? context.paths.config.dockerImage,
-                "sh",
-                "-lc",
-                options.cmd
-              ],
-              undefined,
-              timeoutMs
-            )
-          : await runProcess("sh", ["-lc", options.cmd], workspace.path, timeoutMs);
+      const result = await runProcess(
+        "docker",
+        [
+          "run",
+          "--rm",
+          "-v",
+          `${workspace.path}:${workspace.containerWorkdir}`,
+          "-w",
+          workspace.containerWorkdir,
+          workspace.containerImage,
+          "sh",
+          "-lc",
+          options.cmd
+        ],
+        undefined,
+        timeoutMs
+      );
 
       context.writeSuccess({
         backend: workspace.backend,
