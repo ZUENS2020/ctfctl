@@ -116,9 +116,12 @@ flowchart TD
 
 当前只支持 `docker` 后端：
 
-- `docker`：使用临时 Docker 容器执行命令，并将工作区挂载到容器中
+- `docker`：`workspace create` 会创建持久 Docker 容器，并将工作区挂载到容器中
+- 容器以后台方式保持运行，供后续 `exec run` 复用
+- `exec run` 在已有 workspace 容器内执行命令，而不是每次创建临时容器
+- `workspace stop/start/destroy` 用于停止、启动或销毁 workspace 容器生命周期
 - `workspace.backend` 在输出协议里固定为 `"docker"`
-- `workspace destroy` 仅改变状态，不主动删除工作区文件
+- `workspace destroy` 会删除对应 Docker 容器，但不主动删除工作区文件
 
 默认配置：
 
@@ -143,7 +146,7 @@ ctfctl setup
 
 环境变量仍然保留为兼容覆盖层，但不再是推荐主配置方式。
 
-Docker 模式要求本机 Docker daemon 可用。`image ensure` 会拉取镜像并登记到本地 runtime，`exec run` 则使用 `docker run --rm` 执行临时容器。
+Docker 模式要求本机 Docker daemon 可用。`image ensure` 会拉取镜像并登记到本地 runtime。`workspace create` 会创建一个持久 workspace 容器并在后台保持运行；后续 `exec run` 会在该已有容器内执行命令，而不是通过 `docker run --rm` 每次创建临时容器。可使用 `workspace stop/start/destroy` 管理容器生命周期。
 
 ## Codex 启动 Skill
 
@@ -212,6 +215,16 @@ ctfctl exec run \
   --workspace ws-xxxx \
   --cmd "file sample.bin" \
   --reason "识别文件类型"
+```
+
+最小 workspace / exec 流程：
+
+```bash
+ctfctl workspace create --challenge ch-xxxx
+ctfctl exec run --workspace ws-xxxx --cmd "pwd"
+ctfctl workspace stop --workspace ws-xxxx
+ctfctl workspace start --workspace ws-xxxx
+ctfctl workspace destroy --workspace ws-xxxx
 ```
 
 记录证据：
