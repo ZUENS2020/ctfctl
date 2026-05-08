@@ -518,13 +518,69 @@ export async function createMemoryBranch(
   return branch;
 }
 
-async function getMemoryBranch(paths: RuntimePaths, branchId: string): Promise<MemoryBranchRecord> {
+export async function getMemoryBranch(paths: RuntimePaths, branchId: string): Promise<MemoryBranchRecord> {
   return await readRequiredRecord(
     join(paths.memoryBranchesDir, `${branchId}.json`),
     memoryBranchSchema,
     `Memory branch not found: ${branchId}`,
     "MEMORY_BRANCH_NOT_FOUND"
   );
+}
+
+export async function listMemoryBranches(
+  paths: RuntimePaths,
+  input: { challengeId: string; status?: "active" | "merged" | "dead" }
+): Promise<MemoryBranchRecord[]> {
+  const files = (await readdir(paths.memoryBranchesDir)).sort();
+  const branches = await Promise.all(
+    files
+      .filter((file) => file.endsWith(".json"))
+      .map(async (file) => readJsonFile<MemoryBranchRecord>(join(paths.memoryBranchesDir, file), memoryBranchSchema))
+  );
+
+  return branches.filter((branch) => {
+    return branch.challengeId === input.challengeId && (!input.status || branch.status === input.status);
+  });
+}
+
+export async function killMemoryBranch(paths: RuntimePaths, branchId: string): Promise<MemoryBranchRecord> {
+  const branch = await getMemoryBranch(paths, branchId);
+  const killedBranch = {
+    ...branch,
+    status: "dead"
+  } satisfies MemoryBranchRecord;
+
+  await writeJsonFile(join(paths.memoryBranchesDir, `${branch.id}.json`), killedBranch, memoryBranchSchema);
+  return killedBranch;
+}
+
+export async function listMemoryCommitsByBranch(
+  paths: RuntimePaths,
+  branchId: string
+): Promise<MemoryCommitRecord[]> {
+  const files = (await readdir(paths.memoryCommitsDir)).sort();
+  const commits = await Promise.all(
+    files
+      .filter((file) => file.endsWith(".json"))
+      .map(async (file) => readJsonFile<MemoryCommitRecord>(join(paths.memoryCommitsDir, file), memoryCommitSchema))
+  );
+
+  return commits
+    .filter((commit) => commit.branchId === branchId)
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+export async function listMemoryMerges(paths: RuntimePaths, challengeId: string): Promise<MemoryMergeRecord[]> {
+  const files = (await readdir(paths.memoryMergesDir)).sort();
+  const merges = await Promise.all(
+    files
+      .filter((file) => file.endsWith(".json"))
+      .map(async (file) => readJsonFile<MemoryMergeRecord>(join(paths.memoryMergesDir, file), memoryMergeSchema))
+  );
+
+  return merges
+    .filter((merge) => merge.challengeId === challengeId)
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
 export async function createMemoryCommit(
