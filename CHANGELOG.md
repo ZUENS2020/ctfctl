@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- 重新发布当前 CLI 包，保持 `dist`、README 和 changelog 为最新状态
+
 ## 0.1.1
 
 - 增加 CLI 配置系统，支持 `config show/get/set/unset` 和 `setup`

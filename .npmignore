@@ -1,0 +1,10 @@
+src/
+tests/
+docs/
+.ctfctl-runtime/
+node_modules/
+tsconfig.json
+vitest.config.ts
+.gitignore
+.DS_Store
+ctfctl-*.tgz

@@ -1,6 +1,6 @@
 {
   "name": "ctfctl",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Structured local control plane for Codex-driven CTF workflows.",
   "type": "module",
   "files": [
